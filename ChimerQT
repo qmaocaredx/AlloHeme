@@ -1,0 +1,158 @@
+#!/usr/bin/env Rscript
+argv <- commandArgs(trailingOnly = FALSE)
+script.dir <- dirname(substring(argv[grep("--file=", argv)], 8))
+source(paste(script.dir, '/myFun.General.R', sep=''));
+source(paste(script.dir, '/myFun.Hemicuda.R', sep=''));
+local.lib = get.local.lib(script.dir);
+dir.create(local.lib, showWarnings = F)
+
+argv <- commandArgs(trailingOnly = TRUE)
+if (!all(is.installed(c('optparse','extraDistr', 'scales'), local.lib = local.lib))){
+  install.packages(c('optparse','extraDistr', 'scales'), lib = local.lib, repos='http://cran.us.r-project.org')
+}
+
+suppressPackageStartupMessages(require("optparse", lib.loc = local.lib))
+cat('ChimerQT version 1.1 (2017-05-09)\n\n')
+option_list = list( # provide input folder
+  make_option(c("-s", "--samplesheet"), type="character", default="./SampleSheetChimerQT.csv", 
+              help="sample sheet [default= %default]", metavar="character")
+); 
+opt_parser = OptionParser(option_list=option_list);
+opt = parse_args(opt_parser);
+
+if (is.null(opt$samplesheet)){
+  print_help(opt_parser)
+  stop("You didn't specify the input folder\n")
+}
+
+par = read.samplesheet(opt$samplesheet)
+
+par$Settings$root = sub('^(.*)/[^\\]*$', '\\1', opt$samplesheet)
+if (par$Settings$root == '.'){
+	par$Settings$root = getwd()
+}
+if (par$Settings$root == opt$samplesheet){ # file in the current folder and ./ is not explicitly stated
+	if (regexpr('/',opt$samplesheet)>0){
+		stop('Can not get run folder\n')
+	}else{
+		par$Settings$root = getwd()
+	}
+
+}
+dataFolder = paste(par$Settings$root, par$Settings$HCFairPath, sep ='/')
+tag = paste(par$Settings$ChimerQTPath, '_Summary', sep ='')
+skip = T
+reportFilePatt = '.*.(txt|tsv)'
+input.DNA.ng.default = 10
+error.modeling = par$Settings$ErrorModel
+model = par$Settings$Model
+if (is.null(par$genome.weight)){
+	genome.weight = 3.59E-3
+}else{
+	genome.weight = par$GenomeWeight
+}
+if (is.null(par$AmpliconLength)){
+	h = 110
+}else{
+	h = par$AmpliconLength
+}
+duplicate.adjust = F
+ow = options('warn')
+options(warn = 1)
+
+root = paste(par$Settings$root, par$Settings$ChimerQTPath, sep ='/')
+if (skip && file.exists(paste(tag,'.xls', sep = ''))){
+  stat = read.csv(paste(tag,'.xls', sep = ''), sep = '\t', header = T, row.names = 1)
+  return(stat)
+}
+setwd(dataFolder)
+
+files = list.files(pattern = reportFilePatt)
+dir.create(root, showWarnings = F)
+setwd(root)
+
+stat = c();
+
+# reorder files with samples
+sampleIDs = gsub('_', '-',par$Data$Sample_ID)
+rownames(par$Data) = sampleIDs
+sampleIDs = sub(paste('^(', paste(sampleIDs, collapse = '|'), ')', "_S.+$", sep=''), '\\1', files)
+names(files) = sampleIDs
+if (any(is.na(match(sampleIDs, rownames(par$Data))))){
+  stop('HCFair output files do not match samples in samplesheet!')
+}
+files = files[rownames(par$Data)] # reorder the samples
+
+for (f in 1:length(files)){
+  file = files[f]
+  cat(file, '\n')
+  dat = read.csv(paste(dataFolder, file, sep='/'), sep = '\t', skip = 1)
+  exclusion.list = par$Data$ExclusionFile[f]
+  
+  if (exclusion.list == ''){
+    exclusion.list = NULL
+  }
+  if (!is.null(exclusion.list)){# exclude some SNPs
+    exList = read.table(exclusion.list, comment.char = '#')
+    idx.Exclude = !is.na(match(dat$Locus_ID, exList$V1)); 
+    cat('# loci with coverage > 50: ', sum((dat$Ref_Allele_Counts + dat$Alt_Allele_Counts) > 50), ';  ')
+    cat('# on the exclusion list:', sum((dat$Ref_Allele_Counts + dat$Alt_Allele_Counts) > 50 & idx.Exclude), '\n')
+    dat = dat[!idx.Exclude,]
+  }
+  
+  prior.relationship = par$Data$GeneticRelationship[f]
+  input.DNA.ng = par$Data$InputDNA[f]
+  DNA.type = par$Data$DNAType[f]
+  if (is.na(input.DNA.ng) || input.DNA.ng == 0){
+    cat('Input amount is not avaialble: sample = ', names(files)[f], '; Using default ', input.DNA.ng.default, 'ng', sep ='')
+    input.DNA.ng = input.DNA.ng.default
+  }
+  if (par$Settings$Model %in% c('EPS')){
+    out = SOTM.pred(dat, logsig.transform = T, prior.relationship = prior.relationship, genome.weight = genome.weight, h = h,
+                    error.modeling = error.modeling,model = model, input.DNA.ng = input.DNA.ng, 
+                    exclusion.list = exclusion.list,DNA.type = DNA.type, duplicate.adjust = duplicate.adjust)
+  }else if (par$Settings$Model %in% c('KGT.IterLM', 'PUGT.EPS')){
+    multi.files = list();
+    for (x in strsplit(par$Data$Baselines[f], split = ';')[[1]]){
+      y = sapply(strsplit(x, '='), strsplit, '\\|');
+      y[[1]] = sub('^\\s*([^\\s]*)\\s*$', '\\1', y[[1]])
+      if (length(y[[2]])==1 && y[[2]]=='NA'){
+        multi.files[[y[[1]]]] = NA
+      }else{
+      	isAbsolute = regexpr('^\\s*\\/', y[[2]])>0;
+      	if (isAbsolute){
+	        multi.files[[y[[1]]]] = y[[2]]
+      	}else{
+	        multi.files[[y[[1]]]] = paste(par$Settings$root, y[[2]], sep ='/')
+      	}
+      }
+    }
+    GTdat = getGT(multi.files=multi.files, default.loci = dat$Locus_ID)
+    dat$Locus_ID = sub(pattern = '_amplicon', replacement = '', dat$Locus_ID)
+    out = BMT.pred(dat, GTdat, logsig.transform = T, prior.relationship = prior.relationship, genome.weight = genome.weight, h = h,
+                   model = model, error.modeling = error.modeling, duplicate.adjust = duplicate.adjust,
+                   input.DNA.ng = input.DNA.ng,exclusion.list = exclusion.list, DNA.type = DNA.type)
+  }else{
+    stop('Model must be EPS, KGT.IterLM, or PUGT.EPS')
+  }
+  beta = out$pred;
+  stat = rbind(stat, c(beta, out$QC))
+  
+  pdf(paste(names(files)[f], '.pdf', sep= ''), width = 10, height = 8)
+  par(mfrow = c(2,2))
+  
+  plot.AF(dat, tag = paste(sub('_S.*$','', file, perl=T), sep=''))
+  abline(v = beta[1], lty = 2)
+  abline(v = beta[1]/2, lty = 2)
+  abline(v = beta['lambda'], lty = 2, col = 'grey')
+  plot.AF.ref(dat, tag = paste(sub('_S.*$','', file, perl=T), sep=''))
+  abline(v = beta[1], lty = 2)
+  abline(v = beta[1]/2, lty = 2)
+  abline(v = beta['lambda'], lty = 2, col = 'grey')  
+  dev.off()
+}
+
+rownames(stat) =  names(files)
+write.table('# ChimerQT version 1.1 (2017-05-09)\n', paste(tag,'.xls', sep = ''), col.names = F, row.names = F)
+suppressWarnings(write.table(stat, paste(tag,'.xls', sep = ''), sep = '\t', col.names = NA, append = T))
+options(ow)
