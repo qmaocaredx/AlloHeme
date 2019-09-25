@@ -6,6 +6,7 @@ import csv
 import logging
 import math
 import pandas
+from scipy.special import betaln
 
 #   alloHeme.py is a Python script for AlloHeme's dd-cfDNA fraction
 #   calculation.
@@ -87,34 +88,81 @@ class DdDNACalculation:
         return np.concatenate((p, q), axis=1)
         #return(cbind(p = G %*% t(t(b)), q = (1-G) %*% t(t(b)))) ### Why transpose of transpose?
 
-    def PUGT.expandGT (GTs, prior = NULL):
-    # 1) expand partially unknown genotypes
-    # 2) compute the posterior probability
-    D = ncol(GTs)
-    contributorNames = colnames(GTs)
-    GTexp = matrix(0, nrow(GTs), 3^D)
-    allGTs = names(prior)
-    print("in Expand GT, prior")
-    print (prior)
-    colnames(GTexp) = allGTs
-    rownames(GTexp) = rownames(GTs)
-    for (g in 1:nrow(GTs)){
-        G1 = GTs[g,] # expand degenerate genotypes for each loci
-        allGT.ob = list()
-        for (d in 1:D){
-        if (is.na(G1[d])){
-            Gs = 0:2
-        }else{
-            Gs = G1[d]
-        }
-        allGT.ob[[d]] = paste(contributorNames[d], Gs, sep = ':')
-        }
-        allGT.obs = apply(as.matrix(expand.grid(allGT.ob)), 1, FUN = paste, collapse = '|')
-        priorNormalize = prior[allGT.obs];
-        priorNormalize = priorNormalize/sum(priorNormalize);
-        GTexp[g, allGT.obs] = priorNormalize
-    return(GTexp)
+    def PUGT.Prior (contributorNames = contributors, relationships = 'unrelated', pi = 0.5):
+        # compute the prior for 3D their corresponding prior probabilities. 
+        # Some of the probabilities can be 0
+        
+        allGT <- allGTID <- c()
+        prior1 = c(pi^2, 2*pi*(1-pi), (1-pi)^2)
+        allprior = c()
 
+        for (d in 1:length(contributorNames)):
+            allGTID = cbind(allGTID, paste(contributorNames[d], 0:2, sep = ':'))
+            allGT = cbind(allGT, 0:2)
+            #allprior = cbind(allprior, prior1)
+            allprior = get.geneticRelatedness.prior(relationship="child",pi=0.5)
+
+        colnames(allGT) = contributorNames
+        allGTIDs = apply(as.matrix(expand.grid(as.data.frame(allGTID))), 1, FUN = paste, collapse = '|')
+        allpriors = cbind(prior = apply(as.matrix(expand.grid(as.data.frame(allprior))), 1, FUN = prod), as.matrix(expand.grid(as.data.frame(allGT))))
+        rownames(allpriors) = allGTIDs;
+        return(allpriors)
+
+    def PUGT.expandGT (GTs, prior = NULL):
+        # 1) expand partially unknown genotypes
+        # 2) compute the posterior probability
+        D = np.size(GTs,1) #ncols
+        contributorNames = list(GTs) #probably GTs will be a pandas object #shortcut to get column names of df
+        GTexp = numpy.zeros(len(GTs.index), 3**D) #GTexp = matrix(0, nrow(GTs), 3^D)
+        allGTs = names(prior)
+        print("in Expand GT, prior")
+        print (prior)
+        colnames(GTexp) = allGTs
+        rownames(GTexp) = rownames(GTs)
+        for (g in 1:nrow(GTs)){
+            G1 = GTs[g,] # expand degenerate genotypes for each loci
+            allGT.ob = list()
+            for (d in 1:D){
+            if (is.na(G1[d])){
+                Gs = 0:2
+            }else{
+                Gs = G1[d]
+            }
+            allGT.ob[[d]] = paste(contributorNames[d], Gs, sep = ':')
+            }
+            allGT.obs = apply(as.matrix(expand.grid(allGT.ob)), 1, FUN = paste, collapse = '|')
+            priorNormalize = prior[allGT.obs];
+            priorNormalize = priorNormalize/sum(priorNormalize);
+            GTexp[g, allGT.obs] = priorNormalize
+        return(GTexp)
+
+    def BB (n1, n2, a, b, r):
+        return (betaln(n1 + ni*(1+r)/2*a, n2+ni*(1+r)/2*b) - betaln(ni*(1+r)/2*a, ni*(1+r)/2*b))/log(2)
+
+    def PUGT.LL (beta, r, lambda, expandGT, prior, ni, n1, n2){
+        #log 2 transform
+        ### compute the expected allele fraction for 3^D possible genotype. Return a vector of length 3^D
+        eAF = expectedAF(GT = prior[,2:ncol(prior)], lambda = lambda, b = beta) 
+        n = n1 + n2
+        mu.n = mean(n)
+       
+        ### add the constant coefficents to get correct likelihood values
+        coeff <- (math.lgamma(n+1)-math.lgamma(n1+1)-math.lgamma(n2+1))/log(2)  
+        
+        ll.mat = matrix(-Inf, nrow = length(n1), ncol = nrow(eAF))
+        for i in 1:nrow(eAF):
+            ll.mat[,i] = BB(n1, n2, eAF[i,1], eAF[i,2], r)
+        
+        colnames(ll.mat) = rownames(eAF)
+        rownames(ll.mat) = rownames(expandGT)
+        
+        ll.mat[expandGT==0] = -Inf
+        ### add the genetic prior
+        ll.mat[expandGT>0] = log2(expandGT[expandGT>0]) + ll.mat[expandGT>0] 
+        ll = rowLogSumExp(ll.mat);
+        ll = ll + coeff
+        return(sum(ll))
+    
     # Runs the analysis
     def run(self):
         logging.info("Running tertiary analysis...")

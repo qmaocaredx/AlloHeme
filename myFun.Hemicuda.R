@@ -246,17 +246,23 @@ PUGT.expandGT <- function(GTs, prior = NULL){
   # 1) expand partially unknown genotypes
   # 2) compute the posterior probability
   D = ncol(GTs)
-  print("in PUGTexpand GTs:")
-  print(GTs)
   contributorNames = colnames(GTs)
   GTexp = matrix(0, nrow(GTs), 3^D)
   allGTs = names(prior)
-  print("in Expand GT, prior")
-  print (prior)
+  print("prior")
+  print(prior)
+  print("allGTs")
+  print(allGTs)
   colnames(GTexp) = allGTs
   rownames(GTexp) = rownames(GTs)
+  print("GTexp before")
+  print(GTexp)
   for (g in 1:nrow(GTs)){
+    print("class of GTs")
+    print(class(GTs))
     G1 = GTs[g,] # expand degenerate genotypes for each loci
+    print("G1")
+    print(G1)
     allGT.ob = list()
     for (d in 1:D){
       if (is.na(G1[d])){
@@ -266,11 +272,17 @@ PUGT.expandGT <- function(GTs, prior = NULL){
       }
       allGT.ob[[d]] = paste(contributorNames[d], Gs, sep = ':')
     }
+    print("allGT.ob")
+    print(allGT.ob)
     allGT.obs = apply(as.matrix(expand.grid(allGT.ob)), 1, FUN = paste, collapse = '|')
+    print("allGT.obs")
+    print(allGT.obs)
     priorNormalize = prior[allGT.obs];
     priorNormalize = priorNormalize/sum(priorNormalize);
     GTexp[g, allGT.obs] = priorNormalize
   }
+  print("GTexp after")
+  print(GTexp)
   return(GTexp)
 }
 
@@ -309,7 +321,10 @@ PUGT.LL <- function(beta, r, lambda, model = c('EPS','S','PS','ES'),
   # log base 2
   suppressPackageStartupMessages(require(extraDistr))
   eAF = expectedAF(GT = prior[,2:ncol(prior)], lambda = lambda, b = beta) # compute the expected allele fraction for 3^D possible genotype. Return a vector of length 3^D.
-  n = n1 + n2; 
+  n = n1 + n2;
+  print("n1,n2")
+  print(n1)
+  print(n2) 
   mu.n = mean(n);
   if (model == 'S'){
     BB <- function(n1, n2, a, b) log2(a)*n1 + log2(b)*n2; # binomial model
@@ -318,6 +333,8 @@ PUGT.LL <- function(beta, r, lambda, model = c('EPS','S','PS','ES'),
   }else if (model == 'ES'){
     BB <- function(n1, n2, a, b) (lbeta(n1 + (ni-1)*a, n2+(ni-1)*b) - lbeta((ni-1)*a, (ni-1)*b))/log(2);
   }else if (model == 'EPS'){
+    print("r in EPS")
+    print(r)
     BB <- function(n1, n2, a, b) (lbeta(n1 + ni*(1+r)/2*a, n2+ni*(1+r)/2*b) - lbeta(ni*(1+r)/2*a, ni*(1+r)/2*b))/log(2);
   }
   
