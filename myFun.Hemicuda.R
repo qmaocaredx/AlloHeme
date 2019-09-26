@@ -322,9 +322,6 @@ PUGT.LL <- function(beta, r, lambda, model = c('EPS','S','PS','ES'),
   suppressPackageStartupMessages(require(extraDistr))
   eAF = expectedAF(GT = prior[,2:ncol(prior)], lambda = lambda, b = beta) # compute the expected allele fraction for 3^D possible genotype. Return a vector of length 3^D.
   n = n1 + n2;
-  print("n1,n2")
-  print(n1)
-  print(n2) 
   mu.n = mean(n);
   if (model == 'S'){
     BB <- function(n1, n2, a, b) log2(a)*n1 + log2(b)*n2; # binomial model
@@ -512,6 +509,8 @@ BMT.pred <- function(dat, GTdat,
                                                 model = sub('PUGT.', '',model), 
                                                 expandGT, # population allele frequency, assume to be the same for all SNPs
                                                 prior, ni, n1 =n1, n2 = n2))
+      print(min.x)
+      print(xgrid,)
     }
     soptim = optim(min.x, fn=function(x) -PUGT.LL(b = softmax(x[2:npar]), r = logsig(x[1]), lambda = lambda, 
                                                   model = sub('PUGT.', '',model), 

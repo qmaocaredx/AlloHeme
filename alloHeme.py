@@ -42,29 +42,13 @@ class DdDNACalculation:
     # missing from the config file.
     default_params = {
         "coverageCutoff": 2000,
-        "zeroCutoff": 0.0007848609,
-        "upperLimitOfDetection": 0.15,
-        "maxBackground": 0.005,
-        "refAltCutoff": 0.95,
-        "subtractBackground": 1,
-        "backgroundMultiplier": 3.345202,
-        "minRecipHetCutoff": 0.10,
-        "maxRecipHetCutoff": 0.25,
-        "minCutoff": 0,
-        "maxCutoff": 0.95,
-        "numSnps": 266
+        "numSnps": 405
     }
 
     # Initializes the analysis by extracting the command-line arguments
     def __init__(self, args):
         self.pileup_summary_filename = args.pileup_summary
-        self.amplicons_filename = args.amplicons
         self.config_filename = args.config
-        self.run_name = args.run_name
-        self.sequencer = args.sequencer
-        self.output_by_position_filename = args.output_by_position
-        self.output_by_sample_filename = args.output_by_sample
-        self.output_by_snp_filename = args.output_by_snp
 
     # Parses the contents of the configuration file and stores the
     # configuration in a dict, with defaults from the default_params
@@ -163,6 +147,33 @@ class DdDNACalculation:
         ll = ll + coeff
         return(sum(ll))
     
+    def argmin (x, func):
+        minFunc = np.inf
+        if !x:
+            x = np.array(x, nrow = length(x), ncol = 1)
+        for i in x:
+            xx = x[i,]
+            y = func(xx)
+            if y < minFunc:
+                minX = xx;
+                minFunc = y;
+        return(minX)
+
+    def mapping.bias (dat):
+        r = dat.Ref_Allele_Counts / (dat.Ref_Allele_Counts + dat.Alt_Allele_Counts)
+        cutoffs = [0.05, 0.1, 0.25, 0.5]
+        braw <- br <- cutoffs
+        names(braw) <- names(br) <- cutoffs
+        for c1 in cutoffs:
+            braw[paste(c1)] = df.sum(dat.Ref_Allele_Counts[r<c1], skipna = True)/df.sum(dat.Alt_Allele_Counts[r > 1- c1], skipna = True)
+            br[paste(c1)] = df.sum(r[r<c1] , skipna = True)/df.sum(1-r[r > 1- c1], skipna = True)
+
+        braw = c(braw, allRef_Alt = df.sum(dat.Ref_Allele_Counts , skipna = True)/df.sum(dat.Alt_Allele_Counts , skipna = True), 
+                lambda.Alt2Ref = df.sum(dat.Ref_Allele_Counts[r < 0.25] , skipna = True) /df.sum(dat.Alt_Allele_Counts[r < 0.25] , skipna = True),
+                lambda.Ref2Alt = df.sum(dat.Alt_Allele_Counts[r > 0.75] , skipna = True)/df.sum(dat.Ref_Allele_Counts[r > 0.25] , skipna = True))
+        return(list(braw = braw, br = br))
+    
+
     # Runs the analysis
     def run(self):
         logging.info("Running tertiary analysis...")
